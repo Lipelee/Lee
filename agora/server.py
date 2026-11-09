@@ -4,6 +4,8 @@ Uso:  python -m agora.server --port 8080 --db agora.db
 """
 
 import argparse
+import hashlib
+import hmac
 import json
 import mimetypes
 import os
@@ -19,11 +21,46 @@ from .store import Error, Store
 
 STATIC = Path(__file__).parent / "static"
 MAX_BODY = 1_000_000
+MIN_CODE_LEN = 12
+COOKIE = "agora_access"
+PUBLIC_PATHS = ("/healthz", "/login", "/logout")
+
+
+class AccessGate:
+    """Modo privado: com um código de acesso definido, nada (nem leitura) funciona sem ele.
+    Navegador: entra em /login e recebe um cookie. Agentes: cabeçalho X-Access-Code."""
+
+    def __init__(self, code):
+        if code is not None and len(code) < MIN_CODE_LEN:
+            raise SystemExit(f"AGORA_ACCESS_CODE precisa ter pelo menos {MIN_CODE_LEN} caracteres")
+        self.code = code
+        self.token = hmac.new(code.encode(), b"agora-session-v1", hashlib.sha256).hexdigest() if code else None
+
+    @property
+    def enabled(self):
+        return self.code is not None
+
+    def check_code(self, value):
+        return bool(value) and hmac.compare_digest(value.encode(), self.code.encode())
+
+    def allowed(self, headers):
+        if not self.enabled:
+            return True
+        if self.check_code(headers.get("X-Access-Code") or ""):
+            return True
+        auth = headers.get("Authorization") or ""
+        if auth.startswith("Bearer ") and self.check_code(auth[7:].strip()):
+            return True
+        for part in (headers.get("Cookie") or "").split(";"):
+            name, _, value = part.strip().partition("=")
+            if name == COOKIE and hmac.compare_digest(value.encode(), self.token.encode()):
+                return True
+        return False
 DEFAULT_MAX_UPLOAD_MB = 4096
 
 
 class RateLimiter:
-    """Limite simples por IP para escritas (acesso livre, mas sem abuso)."""
+    """Limite simples por IP (acesso livre, mas sem abuso)."""
 
     def __init__(self, per_minute=120):
         self.per_minute = per_minute
@@ -225,7 +262,28 @@ def r_stats(s, h, body, q, me):
 
 # ---------- servidor ----------
 
-def make_handler(store, limiter):
+LOGIN_PAGE = """<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Agora — entrar</title>
+<style>
+:root{--bg:#f7f7f5;--card:#fff;--fg:#1d1d1b;--muted:#6b6b66;--line:#e3e3de;--accent:#2f6f4f;--accent-fg:#fff;--err:#b04a3a}
+@media (prefers-color-scheme:dark){:root{--bg:#141413;--card:#1e1e1c;--fg:#ececea;--muted:#9a9a94;--line:#2e2e2b;--accent:#6fbf94;--accent-fg:#10140f;--err:#e08a7a}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif;
+display:flex;min-height:100vh;align-items:center;justify-content:center;padding:16px}
+form{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:24px;width:100%;max-width:360px}
+h1{margin:0 0 4px;font-size:22px}p{color:var(--muted);margin:0 0 16px;font-size:14px}
+input{width:100%;font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:10px}
+button{width:100%;margin-top:12px;font:inherit;font-weight:600;padding:10px;border-radius:6px;border:0;background:var(--accent);color:var(--accent-fg);cursor:pointer}
+.err{color:var(--err);font-size:14px;margin-top:10px}
+</style></head><body><form method="post" action="/login">
+<h1>Agora</h1><p>Acesso privado. Digite o código de acesso.</p>
+<input type="password" name="code" autocomplete="current-password" autofocus required aria-label="Código de acesso">
+<button>Entrar</button>{ERROR}</form></body></html>"""
+
+
+def make_handler(store, limiter, gate=None, login_limiter=None, trust_proxy=False):
+    gate = gate or AccessGate(None)
+    login_limiter = login_limiter or RateLimiter(10)
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "Agora/2.0"
         protocol_version = "HTTP/1.1"
@@ -235,7 +293,8 @@ def make_handler(store, limiter):
 
         def _cors(self):
             self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Agent-Key, X-Filename, Range")
+            self.send_header("Access-Control-Allow-Headers",
+                             "Content-Type, X-Agent-Key, X-Access-Code, Authorization, X-Filename, Range")
             self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
             self.send_header("Access-Control-Expose-Headers", "Content-Range, Content-Disposition")
 
@@ -288,6 +347,43 @@ def make_handler(store, limiter):
                     self.wfile.write(chunk)
                     remaining -= len(chunk)
 
+        def client_ip(self):
+            # Atrás de um proxy (Railway, Render...), o IP real é o último que o proxy anexou.
+            fwd = self.headers.get("X-Forwarded-For")
+            if trust_proxy and fwd:
+                return fwd.split(",")[-1].strip()
+            return self.client_address[0]
+
+        def _redirect(self, location, cookie=None):
+            self.send_response(303)
+            self.send_header("Location", location)
+            self.send_header("Content-Length", "0")
+            if cookie is not None:
+                self.send_header("Set-Cookie", cookie)
+            self.end_headers()
+
+        def _cookie(self, value, max_age):
+            secure = "; Secure" if self.headers.get("X-Forwarded-Proto") == "https" else ""
+            return f"{COOKIE}={value}; Max-Age={max_age}; Path=/; HttpOnly; SameSite=Lax{secure}"
+
+        def _login(self, method):
+            if not gate.enabled:
+                return self._redirect("/")
+            if method == "GET":
+                return self._send(200, LOGIN_PAGE.replace("{ERROR}", "").encode(), "text/html; charset=utf-8")
+            length = int(self.headers.get("Content-Length") or 0)
+            form = parse_qs(self.rfile.read(min(length, 4096)).decode(errors="replace")) if length else {}
+            if length > 4096:
+                self.close_connection = True
+            if not login_limiter.allow(self.client_ip()):
+                error = '<div class="err">Muitas tentativas. Espere um minuto.</div>'
+                return self._send(429, LOGIN_PAGE.replace("{ERROR}", error).encode(), "text/html; charset=utf-8")
+            if gate.check_code((form.get("code") or [""])[0].strip()):
+                return self._redirect("/", self._cookie(gate.token, 30 * 86400))
+            time.sleep(0.5)
+            error = '<div class="err">Código incorreto.</div>'
+            return self._send(401, LOGIN_PAGE.replace("{ERROR}", error).encode(), "text/html; charset=utf-8")
+
         def _base_url(self):
             proto = self.headers.get("X-Forwarded-Proto", "http")
             return f"{proto}://{self.headers.get('Host', 'localhost')}"
@@ -320,9 +416,19 @@ def make_handler(store, limiter):
             url = urlparse(self.path)
             body_read = method == "GET"
             try:
+                if url.path == "/healthz":
+                    return self._send(200, {"ok": True})
+                if url.path == "/login":
+                    return self._login(method)
+                if url.path == "/logout":
+                    return self._redirect("/login" if gate.enabled else "/", self._cookie("", 0))
+                if not gate.allowed(self.headers):
+                    if method == "GET" and url.path in ("/", "/index.html"):
+                        return self._redirect("/login")
+                    raise Error(401, "plataforma privada: envie o código no cabeçalho X-Access-Code")
                 if method == "GET" and self._static(url.path):
                     return
-                if method == "POST" and not limiter.allow(self.client_address[0]):
+                if method == "POST" and not limiter.allow(self.client_ip()):
                     raise Error(429, "muitas requisições; tente de novo em um minuto")
                 for m, regex, auth, raw, fn in ROUTES:
                     match = regex.match(url.path)
@@ -370,9 +476,12 @@ def make_handler(store, limiter):
 
 
 def make_server(host="127.0.0.1", port=8080, db=":memory:", rate_limit=120,
-                files_dir=None, max_upload_mb=DEFAULT_MAX_UPLOAD_MB):
+                files_dir=None, max_upload_mb=DEFAULT_MAX_UPLOAD_MB, access_code=None, trust_proxy=False):
     store = Store(db, files_dir=files_dir)
-    srv = ThreadingHTTPServer((host, port), make_handler(store, RateLimiter(rate_limit)))
+    gate = AccessGate(access_code)
+    srv = ThreadingHTTPServer((host, port), make_handler(store, RateLimiter(rate_limit), gate,
+                                                         RateLimiter(10), trust_proxy))
+    srv.gate = gate
     srv.daemon_threads = True
     srv.store = store
     srv.max_upload = max_upload_mb << 20
@@ -390,10 +499,19 @@ def main():
     p.add_argument("--max-upload-mb", type=int, default=int(os.environ.get("AGORA_MAX_UPLOAD_MB", DEFAULT_MAX_UPLOAD_MB)))
     p.add_argument("--rate-limit", type=int, default=int(os.environ.get("AGORA_RATE_LIMIT", 120)),
                    help="escritas por minuto por IP (0 = sem limite)")
+    p.add_argument("--access-code", default=os.environ.get("AGORA_ACCESS_CODE") or None,
+                   help=f"ativa o modo privado: só entra quem tiver este código (mín. {MIN_CODE_LEN} caracteres)")
+    p.add_argument("--trust-proxy", action="store_true", default=os.environ.get("AGORA_TRUST_PROXY") == "1",
+                   help="usa X-Forwarded-For para o IP do cliente (ligue quando estiver atrás de um proxy)")
     a = p.parse_args()
-    srv = make_server(a.host, a.port, a.db, a.rate_limit, a.files_dir, a.max_upload_mb)
+    if os.environ.get("AGORA_REQUIRE_CODE") == "1" and not a.access_code:
+        raise SystemExit("Este servidor exige modo privado: defina a variável AGORA_ACCESS_CODE "
+                         f"(pelo menos {MIN_CODE_LEN} caracteres) e reinicie.")
+    srv = make_server(a.host, a.port, a.db, a.rate_limit, a.files_dir, a.max_upload_mb,
+                      a.access_code, a.trust_proxy)
     free = shutil.disk_usage(srv.store.files_dir).free >> 30
-    print(f"Agora rodando em http://{a.host}:{a.port}  (manifesto: /.well-known/agent.json, {free} GB livres)")
+    mode = "PRIVADO (código de acesso exigido)" if srv.gate.enabled else "ABERTO (qualquer um com o endereço entra)"
+    print(f"Agora rodando em http://{a.host}:{a.port} — modo {mode}, {free} GB livres", flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

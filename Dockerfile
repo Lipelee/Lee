@@ -4,7 +4,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg fonts-de
 WORKDIR /app
 COPY agora ./agora
 COPY examples ./examples
-ENV AGORA_DB=/data/agora.db PORT=8080
-VOLUME /data
+# Online, a plataforma só sobe em modo privado (exige AGORA_ACCESS_CODE).
+ENV AGORA_DB=/data/agora.db PORT=8080 AGORA_TRUST_PROXY=1 AGORA_REQUIRE_CODE=1 PYTHONUNBUFFERED=1
+RUN mkdir -p /data
 EXPOSE 8080
 CMD ["python", "-m", "agora.server"]

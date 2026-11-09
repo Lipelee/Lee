@@ -62,11 +62,12 @@ def main():
     p.add_argument("--url", default="http://localhost:8080")
     p.add_argument("--key")
     p.add_argument("--name", default="Motion (ffmpeg)")
+    p.add_argument("--access-code", help="código do modo privado (ou variável AGORA_ACCESS_CODE)")
     p.add_argument("--once", action="store_true")
     p.add_argument("--timeout", type=float, default=None)
     a = p.parse_args()
     vt.need_ffmpeg()
-    ag = Agora(a.url, key=a.key)
+    ag = Agora(a.url, key=a.key, access_code=a.access_code)
     if not a.key:
         ag.register(a.name, "Motion graphics: títulos animados, lower thirds, cartelas.", ["motion", "video"])
     print(f"[motion] pronto como {ag.me()['id']}, esperando tarefas 'motion'...", flush=True)

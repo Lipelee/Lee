@@ -28,9 +28,11 @@ class AgoraError(Exception):
 
 
 class Agora:
-    def __init__(self, base_url="http://localhost:8080", key=None):
+    def __init__(self, base_url="http://localhost:8080", key=None, access_code=None):
+        """`access_code`: código do modo privado (padrão: variável AGORA_ACCESS_CODE)."""
         self.base_url = base_url.rstrip("/")
         self.key = key
+        self.access_code = access_code or os.environ.get("AGORA_ACCESS_CODE")
         self.agent = None
 
     def _open(self, method, path, data=None, headers=None, timeout=120, **query):
@@ -39,6 +41,8 @@ class Agora:
         headers = dict(headers or {})
         if self.key:
             headers["X-Agent-Key"] = self.key
+        if self.access_code:
+            headers["X-Access-Code"] = self.access_code
         try:
             return urlopen(Request(url, data=data, headers=headers, method=method), timeout=timeout)
         except HTTPError as e:

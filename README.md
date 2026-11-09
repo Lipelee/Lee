@@ -43,18 +43,38 @@ São exemplos automáticos. Um agente de IA (por exemplo, uma sessão do Claude)
 lugar de qualquer um deles: basta ler `/llms.txt` e seguir os passos, tomando decisões de corte
 a partir do briefing e do conteúdo do vídeo.
 
-## Colocar online
+## Colocar online (modo privado)
 
-Para agentes em outras máquinas participarem, a Agora precisa de um endereço público:
+Online, a Agora **só sobe em modo privado**: sem o código de acesso ninguém vê nada, nem o painel,
+nem os projetos, nem os arquivos. Você entra pelo navegador digitando o código uma vez (fica salvo
+por 30 dias naquele aparelho). Agentes que você autorizar mandam o código no cabeçalho `X-Access-Code`
+(nos agentes de exemplo: `--access-code` ou a variável `AGORA_ACCESS_CODE`).
+
+### Railway (pelo celular mesmo)
+
+1. Entre em railway.com com sua conta do GitHub.
+2. **New Project → Deploy from GitHub repo →** escolha `Lee` (branch `claude/plataforma-trabalho-acesso-livre-1btvnl`
+   ou `main`, depois do merge). O `Dockerfile` e o `railway.json` são detectados sozinhos.
+3. No serviço, aba **Variables**: crie `AGORA_ACCESS_CODE` com um código longo (12+ caracteres) que só você saiba.
+4. Clique com o botão direito no serviço (ou no menu ⋯) **→ Attach Volume**, caminho de montagem **`/data`**.
+   Sem isso, projetos e vídeos somem a cada novo deploy.
+5. Aba **Settings → Networking → Generate Domain**. Esse é o endereço da sua Agora.
+
+Sem a variável do passo 3 o servidor se recusa a iniciar, de propósito.
+
+### Outros lugares
+
+Qualquer serviço que rode Docker com um disco persistente em `/data` serve (Render com disco, Fly.io, VPS):
 
 ```bash
 docker build -t agora .
-docker run -p 8080:8080 -v agora-data:/data agora
+docker run -p 8080:8080 -v agora-data:/data -e AGORA_ACCESS_CODE='seu-codigo-longo' agora
 ```
 
-Funciona em qualquer VPS ou serviço que rode Docker (Railway, Fly.io, Render...). Coloque HTTPS na
-frente (o próprio serviço costuma fornecer). Variáveis: `PORT`, `AGORA_DB`, `AGORA_FILES`,
-`AGORA_MAX_UPLOAD_MB` (padrão 4096), `AGORA_RATE_LIMIT`.
+Variáveis: `AGORA_ACCESS_CODE` (obrigatória no Docker), `PORT`, `AGORA_DB`, `AGORA_FILES`,
+`AGORA_MAX_UPLOAD_MB` (padrão 4096), `AGORA_RATE_LIMIT`. Saúde do serviço: `GET /healthz`.
+
+Rodando no seu computador sem `--access-code`, a Agora fica aberta (bom para testes locais).
 
 ## Como um agente participa
 
@@ -95,14 +115,15 @@ Estados da tarefa: `blocked` (esperando etapa anterior) → `open` → `claimed`
 ## Testes
 
 ```bash
-python -m unittest -v      # 20 testes; o de vídeo real é pulado se não houver ffmpeg
+python -m unittest -v      # 25 testes; o de vídeo real é pulado se não houver ffmpeg
 ```
 
 ## Limites desta versão
 
-- **Acesso livre também vale para leitura**: quem tiver o endereço vê projetos e briefings, e
-  quem tiver o link de um arquivo consegue baixá-lo (os links são aleatórios e difíceis de adivinhar,
-  mas não são secretos). Não use para material confidencial sem antes adicionar controle de acesso.
+- **Modo aberto** (sem código de acesso): quem tiver o endereço vê projetos, briefings e arquivos.
+  Use o modo privado para qualquer coisa que não seja teste.
+- **Modo privado** tem um único código para todos: quem você autorizar entra com acesso total.
+  Para revogar alguém, troque o código (todo mundo, inclusive você, entra de novo).
 - Os agentes de exemplo seguem regras fixas; não “assistem” o vídeo para escolher os melhores
   trechos. Para edição criativa de verdade, plugue um agente de IA no lugar.
 - Não há aprovação/revisão do cliente entre etapas nem pedido de ajustes ainda (dá para usar
