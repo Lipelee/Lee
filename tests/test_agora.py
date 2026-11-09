@@ -1,6 +1,10 @@
+import io
+import os
+import tempfile
 import threading
+import time
 import unittest
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 from agora.client import Agora, AgoraError
 from agora.server import make_server
@@ -77,6 +81,88 @@ class StoreTests(unittest.TestCase):
         self.assertEqual([e["data"]["title"] for e in latest], ["3", "4"])
 
 
+class PipelineStoreTests(unittest.TestCase):
+    def setUp(self):
+        self.s = Store(clock=FakeClock())
+        self.boss = self.s.register_agent({"name": "cliente"})["id"]
+        self.editor = self.s.register_agent({"name": "editor"})["id"]
+        self.motion = self.s.register_agent({"name": "motion"})["id"]
+
+    def upload(self, who, data=b"video"):
+        return self.s.save_file(who, "a.mp4", "video/mp4", io.BytesIO(data), len(data), 1 << 20)["id"]
+
+    def test_project_hands_files_from_step_to_step(self):
+        raw = self.upload(self.boss)
+        p = self.s.create_project(self.boss, {
+            "title": "Vídeo", "briefing": "60s, ritmo rápido", "files": [raw],
+            "steps": [{"title": "Editar", "assigned_to": self.editor},
+                      {"title": "Motion", "assigned_to": self.motion}]})
+        edit, motion = p["tasks"]
+        self.assertEqual((edit["status"], motion["status"]), ("open", "blocked"))
+        self.assertEqual(edit["inputs"], [raw])
+        with self.assertRaises(Error) as e:
+            self.s.claim_task(self.motion, motion["id"])
+        self.assertEqual(e.exception.status, 409)  # ainda bloqueada
+        with self.assertRaises(Error):
+            self.s.claim_task(self.motion, edit["id"])  # designada ao editor
+
+        self.s.claim_task(self.editor, edit["id"])
+        cut = self.upload(self.editor, b"cortado")
+        self.s.complete_task(self.editor, edit["id"], {"result": "corte pronto", "files": [cut]})
+
+        motion = self.s.get_task(motion["id"])
+        self.assertEqual(motion["status"], "open")
+        self.assertEqual(motion["inputs"], [cut])
+        self.assertEqual(motion["project"]["briefing"], "60s, ritmo rápido")
+        self.assertIn("task.unblocked", [e["type"] for e in self.s.events()])
+
+        self.s.claim_task(self.motion, motion["id"])
+        final = self.upload(self.motion, b"final")
+        self.s.complete_task(self.motion, motion["id"], {"files": [final]})
+        p = self.s.get_project(p["id"])
+        self.assertEqual(p["status"], "done")
+        self.assertEqual([f["id"] for f in p["deliverables"]], [final])
+        self.assertEqual(self.s.events(latest=True, limit=1)[0]["type"], "project.completed")
+
+    def test_cancel_cascades_to_later_steps(self):
+        p = self.s.create_project(self.boss, {"title": "x", "steps": [{"title": "a"}, {"title": "b"}]})
+        self.s.cancel_task(self.boss, p["tasks"][0]["id"])
+        self.assertEqual(self.s.get_project(p["id"])["status"], "cancelled")
+        self.assertEqual(self.s.get_task(p["tasks"][1]["id"])["status"], "cancelled")
+
+    def test_bad_project_is_not_half_created(self):
+        with self.assertRaises(Error) as e:
+            self.s.create_project(self.boss, {"title": "x", "steps": [{"title": "a"}, {"title": ""}]})
+        self.assertIn("etapa 2", e.exception.message)
+        self.assertEqual(self.s.list_projects(), [])
+        self.assertEqual(self.s.list_tasks(), [])
+
+    def test_complete_requires_result_or_files_and_known_files(self):
+        t = self.s.create_task(self.boss, {"title": "x"})
+        self.s.claim_task(self.editor, t["id"])
+        with self.assertRaises(Error):
+            self.s.complete_task(self.editor, t["id"], {})
+        with self.assertRaises(Error) as e:
+            self.s.complete_task(self.editor, t["id"], {"files": ["fl_nao_existe"]})
+        self.assertEqual(e.exception.status, 404)
+
+    def test_upload_limits(self):
+        with self.assertRaises(Error) as e:
+            self.s.save_file(self.boss, "a", None, io.BytesIO(b"x" * 10), 10, 5)
+        self.assertEqual(e.exception.status, 413)
+        with self.assertRaises(Error):
+            self.s.save_file(self.boss, "a", None, io.BytesIO(b"abc"), 10, 100)  # corpo curto
+        self.assertEqual(os.listdir(self.s.files_dir), [])
+
+    def test_events_long_poll_wakes_up(self):
+        last = self.s.events(latest=True, limit=1)[0]["seq"]
+        threading.Timer(0.2, lambda: self.s.create_task(self.boss, {"title": "novo"})).start()
+        t0 = time.monotonic()
+        got = self.s.events(since=last, wait=5)
+        self.assertLess(time.monotonic() - t0, 2)
+        self.assertEqual(got[0]["type"], "task.created")
+
+
 class HttpTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -118,6 +204,53 @@ class HttpTests(unittest.TestCase):
                 self.assertEqual(r.status, 200)
         with urlopen(self.url + "/llms.txt") as r:
             self.assertIn(self.url.split("//")[1], r.read().decode())
+
+    def test_video_pipeline_over_http(self):
+        boss, editor, motion = Agora(self.url), Agora(self.url), Agora(self.url)
+        boss.register("cliente")
+        editor.register("editor", capabilities=["edicao"])
+        motion.register("motion", capabilities=["motion"])
+        with tempfile.TemporaryDirectory() as d:
+            raw_path = os.path.join(d, "bruto.mp4")
+            with open(raw_path, "wb") as f:
+                f.write(os.urandom(300_000))
+            raw = boss.upload(raw_path)
+            self.assertEqual(raw["size"], 300_000)
+            p = boss.create_project("Vídeo", briefing="corta e anima", files=[raw["id"]], steps=[
+                {"title": "Editar", "tags": ["edicao"], "assigned_to": editor.agent["id"]},
+                {"title": "Motion", "tags": ["motion"], "assigned_to": motion.agent["id"]}])
+
+            got = []
+            waiter = threading.Thread(target=lambda: got.append(motion.next_task(tag="motion", timeout=10)))
+            waiter.start()
+
+            task = editor.next_task(tag="edicao", timeout=5)
+            self.assertEqual(task["title"], "Editar")
+            local = editor.download(task["inputs"][0], d)
+            with open(local, "rb") as f, open(raw_path, "rb") as g:
+                self.assertEqual(f.read(), g.read())
+            cut = editor.upload(raw_path, name="editado.mp4")
+            editor.complete(task["id"], "corte pronto", files=[cut["id"]])
+
+            waiter.join(10)
+            self.assertEqual(got[0]["title"], "Motion")
+            self.assertEqual(got[0]["inputs"], [cut["id"]])
+            motion.complete(got[0]["id"], "motion pronto", files=[cut["id"]])
+            self.assertEqual(boss.project(p["id"])["status"], "done")
+
+            req = Request(f"{self.url}/api/files/{cut['id']}", headers={"Range": "bytes=10-19"})
+            with urlopen(req) as r:
+                self.assertEqual(r.status, 206)
+                self.assertEqual(len(r.read()), 10)
+
+    def test_assigned_to_me_filter(self):
+        a = Agora(self.url)
+        a.register("a")
+        a.post("x")
+        with self.assertRaises(AgoraError) as e:
+            Agora(self.url).tasks(assigned_to="me")
+        self.assertEqual(e.exception.status, 401)
+        self.assertEqual(a.tasks(created_by="me")[0]["title"], "x")
 
     def test_not_found(self):
         with self.assertRaises(AgoraError) as e:

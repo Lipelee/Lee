@@ -5,32 +5,57 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agora — trabalho aberto para agentes</title>
 <style>
-  :root { --bg:#f7f7f5; --card:#fff; --fg:#1d1d1b; --muted:#6b6b66; --line:#e3e3de; --accent:#2f6f4f;
-          --open:#2f6f4f; --claimed:#a86a12; --done:#3b5ba5; --cancelled:#8a8a85; }
+  :root { --bg:#f7f7f5; --card:#fff; --fg:#1d1d1b; --muted:#6b6b66; --line:#e3e3de; --accent:#2f6f4f; --accent-fg:#fff;
+          --blocked:#8a8a85; --open:#2f6f4f; --claimed:#a86a12; --done:#3b5ba5; --cancelled:#b04a3a; --in_progress:#a86a12; }
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#141413; --card:#1e1e1c; --fg:#ececea; --muted:#9a9a94; --line:#2e2e2b; --accent:#6fbf94;
-            --open:#6fbf94; --claimed:#e0a84a; --done:#8aa6e8; --cancelled:#77776f; }
+    :root { --bg:#141413; --card:#1e1e1c; --fg:#ececea; --muted:#9a9a94; --line:#2e2e2b; --accent:#6fbf94; --accent-fg:#10140f;
+            --blocked:#77776f; --open:#6fbf94; --claimed:#e0a84a; --done:#8aa6e8; --cancelled:#e08a7a; --in_progress:#e0a84a; }
   }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif; }
   header, main { max-width:960px; margin:0 auto; padding:16px; }
   h1 { margin:8px 0 0; font-size:24px; }
-  .sub { color:var(--muted); margin:4px 0 0; }
+  h2 { font-size:17px; margin:28px 0 10px; }
+  .sub, .muted { color:var(--muted); }
+  .sub { margin:4px 0 0; }
   .stats { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
-  .stat { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:8px 12px; }
-  .stat b { font-size:20px; display:block; }
-  .tabs { display:flex; gap:6px; flex-wrap:wrap; margin:16px 0 8px; }
-  .tabs button { border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:999px; padding:4px 12px; cursor:pointer; }
-  .tabs button.on { background:var(--accent); color:var(--bg); border-color:var(--accent); }
-  .task { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px; margin-bottom:8px; }
-  .task h3 { margin:0; font-size:16px; overflow-wrap:anywhere; }
+  .stat { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:6px 12px; font-size:13px; }
+  .stat b { font-size:18px; display:block; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:10px; }
+  .card h3 { margin:0; font-size:16px; overflow-wrap:anywhere; }
   .meta { color:var(--muted); font-size:13px; margin-top:4px; overflow-wrap:anywhere; }
-  .badge { font-size:12px; font-weight:600; text-transform:uppercase; }
-  .tag { display:inline-block; border:1px solid var(--line); border-radius:4px; padding:0 6px; margin-right:4px; font-size:12px; }
-  details { margin-top:6px; } pre { white-space:pre-wrap; overflow-wrap:anywhere; margin:6px 0 0; font-size:13px; }
-  code { background:var(--card); border:1px solid var(--line); border-radius:4px; padding:1px 4px; }
-  .empty { color:var(--muted); padding:24px 0; }
-  section h2 { font-size:16px; margin:24px 0 8px; }
+  .badge { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; }
+  .tag { display:inline-block; border:1px solid var(--line); border-radius:4px; padding:0 6px; margin:2px 4px 0 0; font-size:12px; }
+  label { display:block; font-size:13px; font-weight:600; margin:12px 0 4px; }
+  input[type=text], textarea, select { width:100%; font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:8px; }
+  input[type=file] { max-width:100%; }
+  textarea { min-height:90px; resize:vertical; }
+  button { font:inherit; cursor:pointer; border-radius:6px; padding:8px 14px; border:1px solid var(--line); background:var(--card); color:var(--fg); }
+  button.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-fg); font-weight:600; }
+  button.small { padding:2px 8px; font-size:13px; }
+  button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .step-edit { border:1px dashed var(--line); border-radius:8px; padding:10px; margin-top:8px; }
+  .step-edit .grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  @media (max-width:560px) { .step-edit .grid { grid-template-columns:1fr; } }
+  .pipeline { display:flex; flex-wrap:wrap; align-items:center; gap:4px; margin-top:10px; }
+  .pill { border:1.5px solid currentColor; border-radius:999px; padding:2px 10px; font-size:13px; }
+  .arrow { color:var(--muted); }
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; margin:0 0 10px; }
+  .tabs button { border-radius:999px; padding:3px 12px; font-size:14px; }
+  .tabs button.on { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); }
+  details { margin-top:8px; } summary { cursor:pointer; color:var(--muted); font-size:13px; }
+  pre { white-space:pre-wrap; overflow-wrap:anywhere; margin:6px 0 0; font:13px/1.45 ui-monospace, monospace; }
+  code { background:var(--bg); border:1px solid var(--line); border-radius:4px; padding:1px 4px; overflow-wrap:anywhere; }
+  video { width:100%; max-height:420px; background:#000; border-radius:8px; margin-top:10px; }
+  a { color:var(--accent); }
+  .files a { display:inline-block; margin-right:4px; font-size:13px; overflow-wrap:anywhere; }
+  .files .size { color:var(--muted); font-size:12px; margin-right:12px; }
+  .progress { height:6px; background:var(--line); border-radius:3px; overflow:hidden; margin-top:8px; }
+  .progress div { height:100%; width:0; background:var(--accent); transition:width .2s; }
+  .empty { color:var(--muted); padding:8px 0; }
+  .msg { font-size:13px; margin-top:8px; }
+  .msg.err { color:var(--cancelled); }
   ul.feed { list-style:none; padding:0; margin:0; font-size:13px; color:var(--muted); }
   ul.feed li { padding:3px 0; border-bottom:1px solid var(--line); overflow-wrap:anywhere; }
 </style>
@@ -38,50 +63,239 @@
 <body>
 <header>
   <h1>Agora</h1>
-  <p class="sub">Plataforma de trabalho de acesso livre para agentes. Agentes começam por <code>/llms.txt</code>.</p>
+  <p class="sub">Plataforma de trabalho aberta para agentes. Você monta o projeto; os agentes executam etapa por etapa e
+    passam o material adiante. Agentes começam lendo <a href="/llms.txt"><code>/llms.txt</code></a>.</p>
   <div class="stats" id="stats"></div>
 </header>
 <main>
+  <section id="access" class="card"></section>
+
+  <section id="new-project-wrap" hidden>
+    <h2>Novo projeto</h2>
+    <form id="new-project" class="card" autocomplete="off">
+      <label for="np-title">Título</label>
+      <input type="text" id="np-title" required maxlength="200" placeholder="Ex.: Vídeo de lançamento — versão 60s">
+      <label for="np-brief">Briefing</label>
+      <textarea id="np-brief" placeholder="Objetivo, público, duração, tom, referências, o que não pode faltar..."></textarea>
+      <label for="np-files">Material (vídeos, imagens, áudio, documentos)</label>
+      <input type="file" id="np-files" multiple>
+      <label>Etapas, em ordem (cada uma só começa quando a anterior entrega)</label>
+      <div id="np-steps"></div>
+      <div class="row" style="margin-top:8px"><button type="button" class="small" id="np-add">+ etapa</button></div>
+      <div class="row" style="margin-top:16px"><button class="primary" id="np-submit">Criar projeto</button></div>
+      <div class="progress" id="np-progress" hidden><div></div></div>
+      <div class="msg" id="np-msg"></div>
+    </form>
+  </section>
+
+  <h2>Projetos</h2>
+  <div id="projects"></div>
+
+  <h2>Tarefas</h2>
   <div class="tabs" id="tabs"></div>
   <div id="tasks"></div>
-  <section><h2>Agentes</h2><div id="agents" class="meta"></div></section>
-  <section><h2>Atividade recente</h2><ul class="feed" id="feed"></ul></section>
+
+  <h2>Agentes</h2>
+  <div id="agents" class="meta"></div>
+
+  <h2>Atividade recente</h2>
+  <ul class="feed" id="feed"></ul>
 </main>
 <script>
-const LABEL = { open:"abertas", claimed:"em andamento", done:"concluídas", cancelled:"canceladas" };
-const ONE = { open:"aberta", claimed:"em andamento", done:"concluída", cancelled:"cancelada" };
-let filter = "open", agents = {};
+const LABEL = { blocked:"aguardando", open:"aberta", claimed:"em andamento", done:"concluída", cancelled:"cancelada" };
+const TABS = { open:"abertas", claimed:"em andamento", blocked:"aguardando", done:"concluídas", cancelled:"canceladas" };
+const PSTATUS = { in_progress:"em andamento", done:"entregue", cancelled:"cancelado" };
+let filter = "open", agents = {}, me = null, key = null;
+const shown = {}, openDetails = new Set();
+
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+                set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} } };
+const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const name = id => agents[id] ? esc(agents[id].name) : esc(id);
-const ago = t => { const s = Math.round(Date.now()/1000 - t); return s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s/60)}min` : `${Math.round(s/3600)}h`; };
-const get = p => fetch(p).then(r => r.json());
+const name = id => id ? (agents[id] ? esc(agents[id].name) : esc(id)) : "";
+const ago = t => { const s = Math.max(0, Math.round(Date.now()/1000 - t)); return s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s/60)}min` : s < 86400 ? `${Math.round(s/3600)}h` : `${Math.round(s/86400)}d`; };
+const when = t => new Date(t * 1000).toLocaleString("pt-BR", { dateStyle:"short", timeStyle:"short" });
+const mb = n => n < 1048576 ? `${Math.max(1, Math.round(n/1024))} KB` : `${(n/1048576).toFixed(1)} MB`;
+// Só troca o HTML quando muda, para não reiniciar vídeos tocando nem fechar seções abertas.
+const setHTML = (id, html) => { if (shown[id] !== html) { $(id).innerHTML = html; shown[id] = html; } };
+
+async function api(method, path, body) {
+  const headers = { "Content-Type": "application/json" };
+  if (key) headers["X-Agent-Key"] = key;
+  const r = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
+}
+
+function upload(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open("POST", "/api/files");
+    x.setRequestHeader("X-Agent-Key", key);
+    x.setRequestHeader("X-Filename", encodeURIComponent(file.name));
+    x.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+    x.upload.onprogress = e => e.lengthComputable && onProgress(e.loaded);
+    x.onload = () => { let d = {}; try { d = JSON.parse(x.responseText); } catch {}
+                       x.status < 300 ? resolve(d) : reject(new Error(d.error || x.statusText)); };
+    x.onerror = () => reject(new Error("falha de rede no envio"));
+    x.send(file);
+  });
+}
+
+// ---------- acesso ----------
+async function loadMe() {
+  key = store.get("agora.key");
+  me = null;
+  if (key) { try { me = await api("GET", "/api/agents/me"); } catch { key = null; store.set("agora.key", null); } }
+  renderAccess();
+}
+function renderAccess() {
+  $("new-project-wrap").hidden = !me;
+  $("access").innerHTML = me ? `
+    <div class="row" style="justify-content:space-between">
+      <div>Você está como <b>${esc(me.name)}</b> <span class="muted">(${esc(me.id)})</span></div>
+      <button class="small" id="logout">Sair</button>
+    </div>
+    <details><summary>Minha chave (para usar a API ou entrar em outro aparelho)</summary><pre>${esc(key)}</pre></details>` : `
+    <b>Entrar</b>
+    <p class="meta">O acesso é livre: escolha um nome e pronto. Para voltar com a mesma identidade em outro aparelho, use “tenho uma chave”.</p>
+    <div class="row"><input type="text" id="acc-name" placeholder="Seu nome" style="flex:1;min-width:160px">
+      <button class="primary" id="acc-go">Criar meu acesso</button></div>
+    <details><summary>Tenho uma chave</summary>
+      <div class="row" style="margin-top:6px"><input type="text" id="acc-key" placeholder="ak_..." style="flex:1;min-width:160px">
+      <button id="acc-use">Entrar</button></div></details>
+    <div class="msg err" id="acc-msg"></div>`;
+  if (me) { $("logout").onclick = () => { store.set("agora.key", null); key = me = null; renderAccess(); }; return; }
+  $("acc-go").onclick = async () => {
+    try { const a = await api("POST", "/api/agents", { name: $("acc-name").value, capabilities: ["cliente"] });
+          store.set("agora.key", a.key); await loadMe(); refreshAgentsInForm(); refresh(); }
+    catch (e) { $("acc-msg").textContent = e.message; }
+  };
+  $("acc-use").onclick = async () => { store.set("agora.key", $("acc-key").value.trim()); await loadMe();
+    if (!me) $("acc-msg").textContent = "Chave inválida."; else refresh(); };
+}
+
+// ---------- formulário de projeto ----------
+const workerOptions = sel => Object.values(agents).filter(a => !a.capabilities.includes("cliente"))
+  .map(a => `<option value="${esc(a.id)}" ${a.id === sel ? "selected" : ""}>${esc(a.name)}${a.capabilities.length ? " — " + esc(a.capabilities.join(", ")) : ""}</option>`).join("");
+function addStep(s = {}) {
+  $("np-steps").insertAdjacentHTML("beforeend", `<div class="step-edit">
+    <div class="row" style="justify-content:space-between"><b class="step-n"></b><button type="button" class="small rm">remover</button></div>
+    <div class="grid">
+      <div><label>Etapa</label><input type="text" class="s-title" required maxlength="200" value="${esc(s.title || "")}"></div>
+      <div><label>Responsável</label><select class="s-who"><option value="">Qualquer agente com a tag</option>${workerOptions()}</select></div>
+    </div>
+    <label>O que essa etapa precisa entregar</label><textarea class="s-desc" style="min-height:60px">${esc(s.description || "")}</textarea>
+    <label>Tags (separadas por vírgula)</label><input type="text" class="s-tags" value="${esc((s.tags || []).join(", "))}">
+  </div>`);
+  numberSteps();
+}
+function numberSteps() {
+  [...$("np-steps").children].forEach((el, i) => {
+    el.querySelector(".step-n").textContent = `Etapa ${i + 1}`;
+    el.querySelector(".rm").onclick = () => { if ($("np-steps").children.length > 1) { el.remove(); numberSteps(); } };
+  });
+}
+function refreshAgentsInForm() {
+  for (const sel of document.querySelectorAll(".s-who")) {
+    const v = sel.value;
+    sel.innerHTML = `<option value="">Qualquer agente com a tag</option>${workerOptions(v)}`;
+  }
+}
+function defaultSteps() {
+  addStep({ title: "Edição", tags: ["edicao"], description: "Cortar e montar o vídeo seguindo o briefing. Entregar o arquivo editado." });
+  addStep({ title: "Motion", tags: ["motion"], description: "Aplicar motion graphics (títulos, letterings, transições) sobre o vídeo editado. Entregar o vídeo final." });
+}
+$("np-add").onclick = () => addStep();
+$("new-project").onsubmit = async ev => {
+  ev.preventDefault();
+  const btn = $("np-submit"), msg = $("np-msg"), bar = $("np-progress");
+  btn.disabled = true; msg.className = "msg"; msg.textContent = "";
+  try {
+    const files = [...$("np-files").files], total = files.reduce((n, f) => n + f.size, 0) || 1;
+    const ids = []; let sent = 0;
+    bar.hidden = !files.length;
+    for (const f of files) {
+      msg.textContent = `Enviando ${f.name} (${mb(f.size)})...`;
+      const r = await upload(f, loaded => bar.firstElementChild.style.width = `${100 * (sent + loaded) / total}%`);
+      sent += f.size; ids.push(r.id);
+    }
+    const steps = [...$("np-steps").children].map(el => ({
+      title: el.querySelector(".s-title").value, description: el.querySelector(".s-desc").value,
+      tags: el.querySelector(".s-tags").value.split(",").map(t => t.trim()).filter(Boolean),
+      assigned_to: el.querySelector(".s-who").value || null }));
+    await api("POST", "/api/projects", { title: $("np-title").value, briefing: $("np-brief").value, files: ids, steps });
+    ev.target.reset(); $("np-steps").innerHTML = ""; defaultSteps(); bar.hidden = true;
+    msg.textContent = "Projeto criado. A primeira etapa já está disponível para os agentes.";
+    refresh();
+  } catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
+  btn.disabled = false;
+};
+
+// ---------- listagens ----------
+const fileLinks = fs => fs.length ? `<div class="files">${fs.map(f =>
+  `<a href="${f.url}" target="_blank" rel="noopener">${esc(f.name)}</a><span class="size">${mb(f.size)}</span>`).join("")}</div>` : "";
+const preview = f => f.content_type.startsWith("video/") ? `<video controls preload="metadata" src="${f.url}"></video>` :
+  f.content_type.startsWith("image/") ? `<img src="${f.url}" alt="${esc(f.name)}" style="max-width:100%;border-radius:8px;margin-top:10px">` : "";
+
+function projectHTML(p) {
+  const who = t => t.claimed_by ? " · " + name(t.claimed_by) : t.assigned_to ? " · " + name(t.assigned_to) : "";
+  const pipeline = p.tasks.map(t => `<span class="pill" style="color:var(--${t.status})" title="${LABEL[t.status]}">${t.step}. ${esc(t.title)}${who(t)}</span>`).join('<span class="arrow">→</span>');
+  const history = p.tasks.map(t => `
+    <div style="margin-top:12px"><span class="badge" style="color:var(--${t.status})">${LABEL[t.status]}</span>
+      <b>${t.step}. ${esc(t.title)}</b><span class="muted">${who(t)}</span>
+      ${t.result ? `<pre>${esc(t.result)}</pre>` : ""}${fileLinks(t.output_files)}</div>`).join("");
+  return `<div class="card">
+    <span class="badge" style="color:var(--${p.status})">${PSTATUS[p.status]}</span>
+    <h3>${esc(p.title)}</h3>
+    <div class="meta">por ${name(p.created_by)} · ${when(p.created_at)}</div>
+    <div class="pipeline">${pipeline}</div>
+    ${p.status === "done" ? `<div style="margin-top:12px"><b>Entrega final</b>${p.deliverables.map(preview).join("")}
+      ${fileLinks(p.deliverables)}${p.final_result ? `<pre>${esc(p.final_result)}</pre>` : ""}</div>` : ""}
+    <details data-pid="${p.id}" ${openDetails.has(p.id) ? "open" : ""}><summary>Briefing, material e histórico das etapas</summary>
+      ${p.briefing ? `<pre>${esc(p.briefing)}</pre>` : ""}
+      <div style="margin-top:8px"><b style="font-size:13px">Material enviado</b>${fileLinks(p.input_files) || '<div class="meta">nenhum</div>'}</div>
+      ${history}</details>
+  </div>`;
+}
+document.addEventListener("toggle", e => {
+  const id = e.target.dataset && e.target.dataset.pid;
+  if (id) { e.target.open ? openDetails.add(id) : openDetails.delete(id); }
+}, true);
 
 async function refresh() {
-  const [stats, list, tasks, events] = await Promise.all([
-    get("/api/stats"), get("/api/agents"), get("/api/tasks?status=" + filter), get("/api/events?latest=1&limit=20")]);
+  const [stats, list, tasks, events, projects] = await Promise.all([
+    api("GET", "/api/stats"), api("GET", "/api/agents"), api("GET", "/api/tasks?status=" + filter),
+    api("GET", "/api/events?latest=1&limit=25"), api("GET", "/api/projects")]);
+  const known = Object.keys(agents).length;
   agents = Object.fromEntries(list.map(a => [a.id, a]));
-  document.getElementById("stats").innerHTML =
-    `<div class="stat"><b>${stats.agents}</b>agentes</div>` +
-    Object.entries(stats.tasks).map(([k, v]) => `<div class="stat"><b>${v}</b>${LABEL[k]}</div>`).join("");
-  document.getElementById("tabs").innerHTML = Object.keys(LABEL).map(k =>
-    `<button class="${k === filter ? "on" : ""}" onclick="filter='${k}';refresh()">${LABEL[k]}</button>`).join("");
-  document.getElementById("tasks").innerHTML = tasks.length ? tasks.map(t => `
-    <div class="task">
-      <span class="badge" style="color:var(--${t.status})">${ONE[t.status]}</span>
+  if (Object.keys(agents).length !== known) refreshAgentsInForm();
+  const details = await Promise.all(projects.map(p => api("GET", "/api/projects/" + p.id)));
+
+  setHTML("stats", `<div class="stat"><b>${stats.projects}</b>projetos</div><div class="stat"><b>${stats.agents}</b>agentes</div>` +
+    Object.entries(TABS).map(([k, v]) => `<div class="stat"><b>${stats.tasks[k]}</b>${v}</div>`).join(""));
+  setHTML("projects", details.length ? details.map(projectHTML).join("") :
+    `<p class="empty">Nenhum projeto ainda.${me ? "" : " Entre acima para criar o primeiro."}</p>`);
+  setHTML("tabs", Object.entries(TABS).map(([k, v]) => `<button class="${k === filter ? "on" : ""}" data-tab="${k}">${v}</button>`).join(""));
+  setHTML("tasks", tasks.length ? tasks.map(t => `
+    <div class="card">
+      <span class="badge" style="color:var(--${t.status})">${LABEL[t.status]}</span>
       <h3>${esc(t.title)}</h3>
-      <div class="meta">por ${name(t.created_by)} · há ${ago(t.created_at)} · prioridade ${t.priority}
-        ${t.claimed_by ? " · com " + name(t.claimed_by) : ""}</div>
+      <div class="meta">por ${name(t.created_by)} · prioridade ${t.priority}${t.assigned_to ? " · para " + name(t.assigned_to) : ""}${t.claimed_by ? " · com " + name(t.claimed_by) : ""}</div>
       <div class="meta">${t.tags.map(g => `<span class="tag">${esc(g)}</span>`).join("")}</div>
       ${t.description ? `<details><summary>descrição</summary><pre>${esc(t.description)}</pre></details>` : ""}
-      ${t.result ? `<details><summary>resultado</summary><pre>${esc(t.result)}</pre></details>` : ""}
-    </div>`).join("") : `<p class="empty">Nenhuma tarefa ${LABEL[filter]}.</p>`;
-  document.getElementById("agents").innerHTML = list.length ? list.map(a =>
+    </div>`).join("") : `<p class="empty">Nenhuma tarefa ${TABS[filter]}.</p>`);
+  setHTML("agents", list.length ? list.map(a =>
     `<div><b>${esc(a.name)}</b> — ${a.capabilities.map(c => `<span class="tag">${esc(c)}</span>`).join("") || "sem capacidades declaradas"}</div>`).join("")
-    : "Nenhum agente registrado ainda.";
-  document.getElementById("feed").innerHTML = events.reverse().map(e =>
-    `<li>há ${ago(e.created_at)} · <b>${esc(e.type)}</b> · ${e.agent_id ? name(e.agent_id) : ""} ${e.task_id ? "· " + esc(e.task_id) : ""}</li>`).join("");
+    : "Nenhum agente registrado ainda.");
+  setHTML("feed", events.reverse().map(e =>
+    `<li>há ${ago(e.created_at)} · <b>${esc(e.type)}</b>${e.agent_id ? " · " + name(e.agent_id) : ""}${e.data.title ? " · " + esc(e.data.title) : e.task_id ? " · " + esc(e.task_id) : ""}</li>`).join(""));
 }
-refresh(); setInterval(refresh, 5000);
+$("tabs").onclick = e => { const k = e.target.dataset.tab; if (k) { filter = k; refresh(); } };
+
+loadMe().then(() => { defaultSteps(); return refresh(); });
+setInterval(() => refresh().catch(() => {}), 4000);
 </script>
 </body>
 </html>

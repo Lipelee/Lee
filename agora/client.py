@@ -10,8 +10,13 @@ Exemplo:
 """
 
 import json
+import mimetypes
+import os
+import shutil
+import time
+from http.client import HTTPException
 from urllib.error import HTTPError
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 
@@ -28,22 +33,25 @@ class Agora:
         self.key = key
         self.agent = None
 
-    def _call(self, method, path, body=None, **query):
+    def _open(self, method, path, data=None, headers=None, timeout=120, **query):
         query = {k: v for k, v in query.items() if v is not None}
         url = self.base_url + path + ("?" + urlencode(query) if query else "")
-        headers = {"Content-Type": "application/json"}
+        headers = dict(headers or {})
         if self.key:
             headers["X-Agent-Key"] = self.key
-        data = json.dumps(body).encode() if body is not None else (b"{}" if method == "POST" else None)
         try:
-            with urlopen(Request(url, data=data, headers=headers, method=method)) as r:
-                return json.loads(r.read())
+            return urlopen(Request(url, data=data, headers=headers, method=method), timeout=timeout)
         except HTTPError as e:
             try:
                 msg = json.loads(e.read()).get("error", e.reason)
             except ValueError:
                 msg = e.reason
             raise AgoraError(e.code, msg) from None
+
+    def _call(self, method, path, body=None, timeout=120, **query):
+        data = json.dumps(body).encode() if body is not None else (b"{}" if method == "POST" else None)
+        with self._open(method, path, data, {"Content-Type": "application/json"}, timeout, **query) as r:
+            return json.loads(r.read())
 
     def register(self, name, description="", capabilities=()):
         self.agent = self._call("POST", "/api/agents", {
@@ -57,9 +65,10 @@ class Agora:
     def agents(self, capability=None):
         return self._call("GET", "/api/agents", capability=capability)
 
-    def tasks(self, status=None, tag=None, claimed_by=None, created_by=None, limit=None):
-        return self._call("GET", "/api/tasks", status=status, tag=tag,
-                          claimed_by=claimed_by, created_by=created_by, limit=limit)
+    def tasks(self, status=None, tag=None, claimed_by=None, created_by=None,
+              assigned_to=None, project_id=None, limit=None):
+        return self._call("GET", "/api/tasks", status=status, tag=tag, claimed_by=claimed_by,
+                          created_by=created_by, assigned_to=assigned_to, project_id=project_id, limit=limit)
 
     def task(self, task_id):
         return self._call("GET", f"/api/tasks/{task_id}")
@@ -74,8 +83,10 @@ class Agora:
     def release(self, task_id):
         return self._call("POST", f"/api/tasks/{task_id}/release")
 
-    def complete(self, task_id, result):
-        return self._call("POST", f"/api/tasks/{task_id}/complete", {"result": result})
+    def complete(self, task_id, result="", files=()):
+        """Entrega a tarefa. `files` são ids devolvidos por upload(); eles viram
+        automaticamente material de entrada da próxima etapa."""
+        return self._call("POST", f"/api/tasks/{task_id}/complete", {"result": result, "files": list(files)})
 
     def cancel(self, task_id):
         return self._call("POST", f"/api/tasks/{task_id}/cancel")
@@ -83,8 +94,73 @@ class Agora:
     def comment(self, task_id, body):
         return self._call("POST", f"/api/tasks/{task_id}/comments", {"body": body})
 
-    def events(self, since=0, limit=100):
-        return self._call("GET", "/api/events", since=since, limit=limit)
+    def events(self, since=0, limit=100, wait=0):
+        """Eventos após `since`. Com `wait`, o servidor segura a resposta até chegar novidade."""
+        return self._call("GET", "/api/events", since=since, limit=limit, wait=wait or None, timeout=wait + 30)
+
+    # ---------- arquivos ----------
+
+    def upload(self, path, name=None, content_type=None):
+        name = name or os.path.basename(path)
+        content_type = content_type or mimetypes.guess_type(name)[0] or "application/octet-stream"
+        size = os.path.getsize(path)
+        headers = {"Content-Type": content_type, "Content-Length": str(size), "X-Filename": quote(name)}
+        with open(path, "rb") as f, self._open("POST", "/api/files", f, headers, timeout=3600) as r:
+            return json.loads(r.read())
+
+    def download(self, file_id, dest):
+        """Baixa o arquivo para `dest` (pasta ou caminho). Devolve o caminho final."""
+        meta = self._call("GET", f"/api/files/{file_id}/meta")
+        if os.path.isdir(dest):
+            dest = os.path.join(dest, meta["name"])
+        with self._open("GET", f"/api/files/{file_id}", timeout=3600) as r, open(dest, "wb") as out:
+            shutil.copyfileobj(r, out, 1 << 20)
+        return dest
+
+    # ---------- projetos ----------
+
+    def project(self, project_id):
+        return self._call("GET", f"/api/projects/{project_id}")
+
+    def projects(self, created_by=None):
+        return self._call("GET", "/api/projects", created_by=created_by)
+
+    def create_project(self, title, steps, briefing="", files=()):
+        """`steps`: lista de dicts {title, description?, tags?, assigned_to?}, executadas em ordem."""
+        return self._call("POST", "/api/projects", {
+            "title": title, "briefing": briefing, "files": list(files), "steps": list(steps)})
+
+    # ---------- esperar por trabalho ----------
+
+    def next_task(self, tag=None, timeout=None, poll=25):
+        """Bloqueia até existir uma tarefa aberta para este agente (designada a ele ou
+        sem dono e com a tag pedida) e a reivindica. Devolve a tarefa, ou None no timeout."""
+        me = self.agent or self.me()
+        deadline = None if timeout is None else time.monotonic() + timeout
+        failures = 0
+        since = (self._call("GET", "/api/events", latest=1, limit=1) or [{"seq": 0}])[-1]["seq"]
+        while True:
+            mine = self.tasks(status="open", assigned_to=me["id"])
+            free = [t for t in self.tasks(status="open", tag=tag) if not t["assigned_to"]]
+            for t in mine + free:
+                try:
+                    return self.claim(t["id"])
+                except AgoraError as e:
+                    if e.status not in (403, 409):  # outro agente pegou antes
+                        raise
+            left = None if deadline is None else deadline - time.monotonic()
+            if left is not None and left <= 0:
+                return None
+            wait = int(poll if left is None else max(1, min(poll, left)))
+            try:
+                news = self.events(since=since, wait=wait)
+            except (OSError, HTTPException):  # servidor fora do ar ou rede instável: tenta de novo
+                time.sleep(min(30, 2 ** min(failures, 5)))
+                failures += 1
+                continue
+            failures = 0
+            if news:
+                since = news[-1]["seq"]
 
     def stats(self):
         return self._call("GET", "/api/stats")
