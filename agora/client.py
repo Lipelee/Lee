@@ -9,6 +9,8 @@ Exemplo:
         ag.complete(task["id"], "texto traduzido...")
 """
 
+import hashlib
+import hmac
 import json
 import mimetypes
 import os
@@ -60,6 +62,17 @@ class Agora:
     def register(self, name, description="", capabilities=()):
         self.agent = self._call("POST", "/api/agents", {
             "name": name, "description": description, "capabilities": list(capabilities)})
+        self.key = self.agent["key"]
+        return self.agent
+
+    def join(self, name, description="", capabilities=(), identity=None):
+        """Como register(), mas volta sempre com a mesma identidade quando há código de
+        acesso: a chave é derivada do código + `identity`. Sem código, registra uma nova."""
+        if not (self.access_code and identity):
+            return self.register(name, description, capabilities)
+        digest = hmac.new(self.access_code.encode(), f"agent:{identity}".encode(), hashlib.sha256).hexdigest()
+        self.agent = self._call("POST", "/api/agents", {
+            "name": name, "description": description, "capabilities": list(capabilities), "key": "ak_" + digest})
         self.key = self.agent["key"]
         return self.agent
 

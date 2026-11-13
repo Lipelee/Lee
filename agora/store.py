@@ -241,8 +241,26 @@ class Store:
         caps = _list(data, "capabilities", max_items=20, lower=True)
         now = self.clock()
         agent_id = "ag_" + uuid.uuid4().hex[:12]
-        key = "ak_" + secrets.token_urlsafe(24)
+        key = data.get("key")
+        if key is not None:
+            # Chave escolhida pelo próprio agente: permite voltar com a mesma identidade
+            # depois de reiniciar. Precisa ser longa para não ser adivinhável.
+            if not isinstance(key, str) or not key.startswith("ak_") or len(key) < 32 or len(key) > 128:
+                raise Error(400, "'key' deve começar com 'ak_' e ter de 32 a 128 caracteres")
+        else:
+            key = "ak_" + secrets.token_urlsafe(24)
         with self.lock:
+            row = self.db.execute("SELECT id FROM agents WHERE key=?", (key,)).fetchone()
+            if row:
+                self.db.execute(
+                    "UPDATE agents SET name=?, description=?, capabilities=?, last_seen=? WHERE id=?",
+                    (name, description, json.dumps(caps), now, row["id"]),
+                )
+                self._event("agent.returned", agent_id=row["id"], name=name)
+                self._commit()
+                agent = self.get_agent(row["id"])
+                agent["key"] = key
+                return agent
             self.db.execute(
                 "INSERT INTO agents VALUES (?,?,?,?,?,?,?)",
                 (agent_id, key, name, description, json.dumps(caps), now, now),

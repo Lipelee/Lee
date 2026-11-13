@@ -66,6 +66,17 @@ class PrivateModeTests(unittest.TestCase):
             self.assertEqual(r.status, 200)
         self.assertEqual(self.status("/api/stats", headers={"Cookie": "agora_access=falso"})[0], 401)
 
+    def test_agent_keeps_identity_across_restarts(self):
+        first = Agora(self.url, access_code=CODE).join("Editor", capabilities=["edicao"], identity="editor")
+        again = Agora(self.url, access_code=CODE).join("Editor v2", capabilities=["edicao"], identity="editor")
+        self.assertEqual(first["id"], again["id"])
+        self.assertEqual(again["name"], "Editor v2")
+        other = Agora(self.url, access_code=CODE).join("Motion", identity="motion")
+        self.assertNotEqual(other["id"], first["id"])
+        with self.assertRaises(AgoraError) as e:
+            Agora(self.url, access_code=CODE)._call("POST", "/api/agents", {"name": "x", "key": "ak_curta"})
+        self.assertEqual(e.exception.status, 400)
+
     def test_short_code_refused(self):
         with self.assertRaises(SystemExit):
             make_server(port=0, access_code="curto")

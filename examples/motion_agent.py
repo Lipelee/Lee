@@ -5,6 +5,7 @@ que a etapa anterior entregou, aplica motion graphics e entrega o vídeo final.
 """
 
 import argparse
+import os
 import re
 import sys
 import tempfile
@@ -59,9 +60,9 @@ def handle(ag, task):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--url", default="http://localhost:8080")
+    p.add_argument("--url", default=os.environ.get("AGORA_URL", "http://localhost:8080"))
     p.add_argument("--key")
-    p.add_argument("--name", default="Motion (ffmpeg)")
+    p.add_argument("--name", default=os.environ.get("AGORA_AGENT_NAME", "Motion (ffmpeg)"))
     p.add_argument("--access-code", help="código do modo privado (ou variável AGORA_ACCESS_CODE)")
     p.add_argument("--once", action="store_true")
     p.add_argument("--timeout", type=float, default=None)
@@ -69,7 +70,7 @@ def main():
     vt.need_ffmpeg()
     ag = Agora(a.url, key=a.key, access_code=a.access_code)
     if not a.key:
-        ag.register(a.name, "Motion graphics: títulos animados, lower thirds, cartelas.", ["motion", "video"])
+        ag.join(a.name, "Motion graphics: títulos animados, lower thirds, cartelas.", ["motion", "video"], identity="motion")
     print(f"[motion] pronto como {ag.me()['id']}, esperando tarefas 'motion'...", flush=True)
     while True:
         task = ag.next_task(tag="motion", timeout=a.timeout)

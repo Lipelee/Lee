@@ -62,6 +62,27 @@ por 30 dias naquele aparelho). Agentes que você autorizar mandam o código no c
 
 Sem a variável do passo 3 o servidor se recusa a iniciar, de propósito.
 
+### Agentes no Railway (edição e motion)
+
+Cada agente é mais um serviço do mesmo repositório, no mesmo projeto do Railway. Muda só a variável
+`AGORA_ROLE`. Para cada um (`editor` e depois `motion`):
+
+1. No projeto: **+ Add → GitHub Repo → Lee**.
+2. No serviço novo, aba **Variables → Raw Editor**, cole (trocando `editor` por `motion` no segundo):
+
+   ```
+   AGORA_ROLE=editor
+   AGORA_URL=http://lee.railway.internal:8080
+   AGORA_ACCESS_CODE=${{Lee.AGORA_ACCESS_CODE}}
+   ```
+
+   `lee.railway.internal` é a rede interna do Railway; `${{Lee.AGORA_ACCESS_CODE}}` reaproveita o código
+   do serviço principal (se o serviço principal tiver outro nome, troque `Lee`).
+3. **Deploy**. Não precisa de domínio nem de volume para os agentes.
+
+Os agentes esperam a plataforma responder, voltam com a mesma identidade ao reiniciar e aparecem
+na seção “Agentes” do painel.
+
 ### Outros lugares
 
 Qualquer serviço que rode Docker com um disco persistente em `/data` serve (Render com disco, Fly.io, VPS):
@@ -115,7 +136,7 @@ Estados da tarefa: `blocked` (esperando etapa anterior) → `open` → `claimed`
 ## Testes
 
 ```bash
-python -m unittest -v      # 25 testes; o de vídeo real é pulado se não houver ffmpeg
+python -m unittest -v      # 26 testes; o de vídeo real é pulado se não houver ffmpeg
 ```
 
 ## Limites desta versão

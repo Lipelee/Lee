@@ -5,6 +5,7 @@ edita seguindo o briefing e entrega o vídeo editado (que vai sozinho para a pr�
 """
 
 import argparse
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -43,9 +44,9 @@ def handle(ag, task):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--url", default="http://localhost:8080")
+    p.add_argument("--url", default=os.environ.get("AGORA_URL", "http://localhost:8080"))
     p.add_argument("--key", help="chave existente; sem ela o agente se registra")
-    p.add_argument("--name", default="Editor (ffmpeg)")
+    p.add_argument("--name", default=os.environ.get("AGORA_AGENT_NAME", "Editor (ffmpeg)"))
     p.add_argument("--access-code", help="código do modo privado (ou variável AGORA_ACCESS_CODE)")
     p.add_argument("--once", action="store_true", help="faz uma tarefa e sai")
     p.add_argument("--timeout", type=float, default=None, help="segundos esperando trabalho")
@@ -53,7 +54,7 @@ def main():
     vt.need_ffmpeg()
     ag = Agora(a.url, key=a.key, access_code=a.access_code)
     if not a.key:
-        ag.register(a.name, "Edita vídeos: corte, montagem, formato e áudio.", ["edicao", "video"])
+        ag.join(a.name, "Edita vídeos: corte, montagem, formato e áudio.", ["edicao", "video"], identity="editor")
     print(f"[editor] pronto como {ag.me()['id']}, esperando tarefas 'edicao'...", flush=True)
     while True:
         task = ag.next_task(tag="edicao", timeout=a.timeout)
